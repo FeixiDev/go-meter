@@ -2,13 +2,11 @@ package pipeline
 
 import (
 	"encoding/binary"
-	"fmt"
 	"go-meter/performinfo"
 	"go-meter/randnum"
 	"log"
 	"os"
 	"sync"
-	"time"
 )
 
 type File struct {
@@ -30,48 +28,14 @@ func NewFile(filePath string, fileSize int, masterMask uint64) *File {
 }
 
 func MasterMap(blockID, blockSize int) int {
-	blockSize = blockSize / 8
-	masterBlockSize := MasterBlockSize / 8
 	fileOffset := blockID * blockSize
-	masterOffset := fileOffset % masterBlockSize
+	masterOffset := fileOffset % MasterBlockSize
 	return masterOffset
 }
 
-func (f *File) WriteFile1(master *[]uint64, bs int, fileID uint64) {
-	start := time.Now()
-	rs := randnum.RandomInit(fileID)
-	fileMask := randnum.LCGRandom(rs)
-	blockMask := randnum.LCGRandom(rs)
-	mask := f.masterMask ^ fileMask
-	buffer := make([]byte, bs)
-	tempBuffer := make([]byte, 8)
-
-	for i := 0; i < f.fileSize/bs; i++ {
-		masterOffset := MasterMap(i, bs)
-		for j := 0; j < bs/8; j++ {
-			if masterOffset+j == MasterBlockSize/8 {
-				masterOffset = masterOffset - MasterBlockSize/8
-				blockMask = randnum.LCGRandom(rs)
-			}
-			binary.BigEndian.PutUint64(tempBuffer, (*master)[masterOffset+j]^mask^blockMask)
-			for index, value := range tempBuffer {
-				buffer[j*8+index] = value
-			}
-
-		}
-		f.file.Write(buffer)
-		performinfo.IOEnd(int64(bs))
-	}
-	err := f.file.Close()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("不使用channel:", time.Since(start))
-}
-
 func (f *File) WriteFile(master *[]uint64, bs int, fileID uint64) {
-	// start := time.Now()
 	var buffers [2][]byte
+	nblocks := f.fileSize / bs
 	rs := randnum.RandomInit(fileID)
 	fileMask := randnum.LCGRandom(rs)
 	blockMask := randnum.LCGRandom(rs)
@@ -83,10 +47,10 @@ func (f *File) WriteFile(master *[]uint64, bs int, fileID uint64) {
 	buffers[0] = buffer1
 	buffers[1] = buffer2
 
-	writeCh := make(chan int, 2)
-	writeCh <- 0
-	writeCh <- 1
-	defer close(writeCh)
+	freeCh := make(chan int, 2)
+	freeCh <- 0
+	freeCh <- 1
+	defer close(freeCh)
 
 	readyCh := make(chan int, 2)
 	defer close(readyCh)
@@ -95,32 +59,32 @@ func (f *File) WriteFile(master *[]uint64, bs int, fileID uint64) {
 	wg.Add(2)
 
 	go func() {
-		for i := 0; i < f.fileSize/bs; i++ {
-			myChan := <-writeCh
-			myBuffer := buffers[myChan]
+		for i := 0; i < nblocks; i++ {
+			bufferID := <-freeCh
+			myBuffer := buffers[bufferID]
 			masterOffset := MasterMap(i, bs)
-			for j := 0; j < bs/8; j++ {
-				if masterOffset+j == MasterBlockSize/8 {
-					masterOffset = masterOffset - MasterBlockSize/8
+			for j := 0; j < bs; j += 8 {
+				if masterOffset+j >= MasterBlockSize {
+					masterOffset -= MasterBlockSize
 					blockMask = randnum.LCGRandom(rs)
 				}
-				binary.BigEndian.PutUint64(tempBuffer, (*master)[masterOffset+j]^mask^blockMask)
+				binary.BigEndian.PutUint64(tempBuffer, (*master)[(masterOffset+j)/8]^mask^blockMask)
 				for index, value := range tempBuffer {
-					myBuffer[j*8+index] = value
+					myBuffer[j+index] = value
 				}
 			}
-			readyCh <- myChan
+			readyCh <- bufferID
 		}
 		wg.Done()
 	}()
 
 	go func() {
-		for i := 0; i < f.fileSize/bs; i++ {
-			myChan := <-readyCh
-			myBuffer := buffers[myChan]
+		for i := 0; i < nblocks; i++ {
+			bufferID := <-readyCh
+			myBuffer := buffers[bufferID]
 			f.file.Write(myBuffer)
 			performinfo.IOEnd(int64(bs))
-			writeCh <- myChan
+			freeCh <- bufferID
 		}
 		wg.Done()
 	}()
@@ -129,5 +93,5 @@ func (f *File) WriteFile(master *[]uint64, bs int, fileID uint64) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// fmt.Println("使用channel:", time.Since(start))
+
 }

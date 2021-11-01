@@ -1,10 +1,11 @@
 package performinfo
 
 import (
-    "sync"
-    "time"
-    "strconv"
-    "github.com/shirou/gopsutil/cpu"
+	"fmt"
+	"time"
+	"strconv"
+	"sync"
+	"github.com/shirou/gopsutil/cpu"
     "github.com/shirou/gopsutil/mem"
 )
 
@@ -30,8 +31,10 @@ var iostate = IOState{
 	IOPS: make(map[int64]float64),
 	MBPS: make(map[int64]float64),
 }
+var firstStime int64 = 0
+var firstEtime int64 = 0
 
-func GetState()([]float64){
+func GetState()([]float64) {
 
     sysInfo := make([]float64,2)
     cpuPer, _ := cpu.Percent(time.Second, false)
@@ -46,8 +49,12 @@ func GetState()([]float64){
 func IOStart(ioid int64) error {
 	stime := time.Now().Unix()
 	ioinfo.IOMutex.Lock()
+	if firstStime == 0 {
+		firstStime = stime
+	}
 	
-	ioinfo.IOStime[ioid] = stime
+	iostime := stime - firstStime
+	ioinfo.IOStime[ioid] = iostime
 	ioinfo.IOMutex.Unlock()
 	return nil
 }
@@ -57,8 +64,11 @@ func IOEnd(bs int64, ioid int64) error {
 	etime := time.Now().Unix()
 	ioinfo.IOMutex.Lock()
 	iostate.IOMutex.Lock()
+	if firstEtime == 0 {
+		firstEtime = etime
+	}
 
-	ioetime := etime
+	ioetime := etime - firstEtime + 1
 	for id := range ioinfo.IOStime{
 		if ioid == id {
 			if ioetime - ioinfo.IOStime[ioid] > ioWindow {
@@ -80,7 +90,7 @@ func IOEnd(bs int64, ioid int64) error {
 
 func GetIOps() (float64) {
 	nowtime := time.Now().Unix()
-	gettime := nowtime - 1
+	gettime := nowtime - firstEtime - 1
 
 	iops, ok:= iostate.IOPS[gettime]
 	if ok {
@@ -94,7 +104,7 @@ func GetIOps() (float64) {
 
 func GetMBps() (float64) {
 	nowtime := time.Now().Unix()
-	gettime := nowtime - 1
+	gettime := nowtime - firstEtime - 1
 
 	mbps, ok:= iostate.MBPS[gettime]
 	if ok {

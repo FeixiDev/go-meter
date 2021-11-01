@@ -79,11 +79,14 @@ func (f *File) WriteFile(master *[]uint64, bs int, fileID uint64) {
 	}()
 
 	go func() {
+		var ioID int64
 		for i := 0; i < nblocks; i++ {
+			ioID = int64(fileID) ^ int64(i)
 			bufferID := <-readyCh
 			myBuffer := buffers[bufferID]
+			performinfo.IOStart(ioID)
 			f.file.Write(myBuffer)
-			performinfo.IOEnd(int64(bs))
+			performinfo.IOEnd(int64(bs), ioID)
 			freeCh <- bufferID
 		}
 		wg.Done()

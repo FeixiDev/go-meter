@@ -8,6 +8,7 @@ import (
 
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/mem"
+
 )
 
 const (
@@ -53,7 +54,6 @@ func IOStart(ioid int64) error {
 	if firstStime == 0 {
 		firstStime = stime
 	}
-
 	iostime := stime - firstStime
 	ioinfo.IOStime[ioid] = iostime
 	ioinfo.IOMutex.Unlock()

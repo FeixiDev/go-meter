@@ -2,11 +2,13 @@ package performinfo
 
 import (
 	"fmt"
-	"time"
 	"strconv"
 	"sync"
+	"time"
+
 	"github.com/shirou/gopsutil/cpu"
-    "github.com/shirou/gopsutil/mem"
+	"github.com/shirou/gopsutil/mem"
+
 )
 
 const (
@@ -14,8 +16,8 @@ const (
 )
 
 type IOState struct {
-	IOPS map[int64]float64
-	MBPS map[int64]float64
+	IOPS    map[int64]float64
+	MBPS    map[int64]float64
 	IOMutex sync.Mutex
 }
 
@@ -34,15 +36,15 @@ var iostate = IOState{
 var firstStime int64 = 0
 var firstEtime int64 = 0
 
-func GetState()([]float64) {
+func GetState() []float64 {
 
-    sysInfo := make([]float64,2)
-    cpuPer, _ := cpu.Percent(time.Second, false)
-    sysInfo[0] = cpuPer[0]
-    memInfo,_ := mem.VirtualMemory()
-    sysInfo[1] = memInfo.UsedPercent
+	sysInfo := make([]float64, 2)
+	cpuPer, _ := cpu.Percent(time.Second, false)
+	sysInfo[0] = cpuPer[0]
+	memInfo, _ := mem.VirtualMemory()
+	sysInfo[1] = memInfo.UsedPercent
 
-    return sysInfo
+	return sysInfo
 
 }
 
@@ -52,7 +54,6 @@ func IOStart(ioid int64) error {
 	if firstStime == 0 {
 		firstStime = stime
 	}
-	
 	iostime := stime - firstStime
 	ioinfo.IOStime[ioid] = iostime
 	ioinfo.IOMutex.Unlock()
@@ -69,17 +70,17 @@ func IOEnd(bs int64, ioid int64) error {
 	}
 
 	ioetime := etime - firstEtime + 1
-	for id := range ioinfo.IOStime{
+	for id := range ioinfo.IOStime {
 		if ioid == id {
-			if ioetime - ioinfo.IOStime[ioid] > ioWindow {
+			if ioetime-ioinfo.IOStime[ioid] > ioWindow {
 				delete(ioinfo.IOStime, ioid)
 				break
-			} 
+			}
 			cycles := ioWindow + 1 - ioetime + ioinfo.IOStime[ioid]
 			for i = 0; i < cycles; i++ {
-				iostate.IOPS[ioetime + i] += 1 / float64(ioetime - ioinfo.IOStime[ioid] + i)
-				iostate.MBPS[ioetime + i] += float64(bs) / float64(ioetime - ioinfo.IOStime[ioid] + i)
-			} 
+				iostate.IOPS[ioetime+i] += 1 / float64(ioetime-ioinfo.IOStime[ioid]+i)
+				iostate.MBPS[ioetime+i] += float64(bs) / float64(ioetime-ioinfo.IOStime[ioid]+i)
+			}
 		}
 	}
 	delete(ioinfo.IOStime, ioid)
@@ -88,11 +89,11 @@ func IOEnd(bs int64, ioid int64) error {
 	return nil
 }
 
-func GetIOps() (float64) {
+func GetIOps() float64 {
 	nowtime := time.Now().Unix()
 	gettime := nowtime - firstEtime - 1
 
-	iops, ok:= iostate.IOPS[gettime]
+	iops, ok := iostate.IOPS[gettime]
 	if ok {
 		value, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", iops), 64)
 		delete(iostate.IOPS, gettime)
@@ -102,13 +103,13 @@ func GetIOps() (float64) {
 	}
 }
 
-func GetMBps() (float64) {
+func GetMBps() float64 {
 	nowtime := time.Now().Unix()
 	gettime := nowtime - firstEtime - 1
 
-	mbps, ok:= iostate.MBPS[gettime]
+	mbps, ok := iostate.MBPS[gettime]
 	if ok {
-		value, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", (mbps / (1024 * 1024))), 64)
+		value, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", (mbps/(1024*1024))), 64)
 		delete(iostate.MBPS, gettime)
 		return value
 	} else {

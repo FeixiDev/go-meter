@@ -3,12 +3,15 @@ package pipeline
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"go-meter/performinfo"
 	"go-meter/randnum"
 	"io"
 	"log"
 	"os"
 	"sync"
+	"syscall"
+	"time"
 )
 
 type File struct {
@@ -18,6 +21,7 @@ type File struct {
 }
 
 func NewFileForWrite(filePath string, fileSize int, masterMask uint64) *File {
+	// file, err := os.OpenFile(filePath, os.O_RDWR|syscall.O_NONBLOCK|os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	file, err := os.Create(filePath)
 	if err != nil {
 		log.Fatal(err)
@@ -29,10 +33,11 @@ func NewFileForWrite(filePath string, fileSize int, masterMask uint64) *File {
 	}
 }
 
-func NewFileForRead(filePath string, masterMask uint64) *File {
-	f, _ := os.Stat(filePath)
-	file, err := os.OpenFile(filePath, os.O_RDWR, 0666)
-	fileSize := int(f.Size())
+func NewFileForRead(filePath string, fileSize int, masterMask uint64) *File {
+	// f, _ := os.Stat(filePath)
+	// file, err := syscall.Open(filePath, syscall.O_CREAT|syscall.O_RDWR|syscall.O_NONBLOCK, 0644)
+	file, err := os.OpenFile(filePath, os.O_RDWR|syscall.O_NONBLOCK, 0666)
+	// fileSize := int(f.Size())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -50,6 +55,7 @@ func MasterMap(blockID, blockSize int) int {
 }
 
 func (f *File) WriteFile(master *[]uint64, bs int, fileID uint64) {
+	start := time.Now()
 	var buffers [2][]byte
 	nblocks := f.fileSize / bs
 	rs := randnum.RandomInit(fileID)
@@ -97,7 +103,7 @@ func (f *File) WriteFile(master *[]uint64, bs int, fileID uint64) {
 	go func() {
 		var ioID int64
 		for i := 0; i < nblocks; i++ {
-			ioID = int64(fileID) ^ int64(i)
+			ioID = (int64(fileID)<<60 | int64(i))
 			bufferID := <-readyCh
 			myBuffer := buffers[bufferID]
 			performinfo.IOStart(ioID)
@@ -112,6 +118,7 @@ func (f *File) WriteFile(master *[]uint64, bs int, fileID uint64) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	fmt.Println(time.Since(start))
 }
 
 func (f *File) ReadFile(bs int, fileID uint64) {
@@ -180,7 +187,7 @@ func (f *File) CompareFile(master *[]uint64, bs int, fileID uint64) {
 			myBuffer := buffers[bufferID]
 			_, err := f.file.Read(block)
 			if !bytes.Equal(block, myBuffer) {
-				log.Fatal("数据不一致")
+				log.Fatal("Data is inconsistent!!!")
 			}
 			if err != nil && err != io.EOF {
 				panic(err)

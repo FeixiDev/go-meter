@@ -38,8 +38,9 @@ func init() {
 func CompareFiles(i uint, masterBlock *[]uint64, wg *sync.WaitGroup) {
 	fileID := uint64(i)
 	blockSize, _ := strconv.Atoi(InputArgs.BlockSize)
+	fileSize, _ := strconv.Atoi(InputArgs.TotalSize)
 	filename := InputArgs.FilePath + "/" + strconv.FormatUint(fileID, 10)
-	file := pipeline.NewFileForRead(filename, InputArgs.MasterMask)
+	file := pipeline.NewFileForRead(filename, fileSize, InputArgs.MasterMask)
 	file.CompareFile(masterBlock, blockSize, fileID)
 	wg.Done()
 }

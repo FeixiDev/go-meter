@@ -1,117 +1,92 @@
 package performinfo
 
 import (
-	"fmt"
-	"time"
-	"strconv"
-	"sync"
-	"github.com/shirou/gopsutil/cpu"
+    "fmt"
+    "time"
+    "strconv"
+    "sync"
+    "github.com/shirou/gopsutil/cpu"
     "github.com/shirou/gopsutil/mem"
 )
 
 const (
-	ioWindow int64 = 3
+    ioWindow int64 = 3
 )
 
-type IOState struct {
-	IOPS map[int64]float64
-	MBPS map[int64]float64
-	IOMutex sync.Mutex
-}
-
 type IOInfo struct {
-	IOStime map[int64]int64
-	IOMutex sync.Mutex
+    // IOStime map[int64]int64
+    // IOEtime map[int64]int64
+    IObs int64
+    IOMutex sync.RWMutex
 }
 
-var ioinfo = IOInfo{
-	IOStime: make(map[int64]int64),
-}
-var iostate = IOState{
-	IOPS: make(map[int64]float64),
-	MBPS: make(map[int64]float64),
-}
-var firstStime int64 = 0
-var firstEtime int64 = 0
+// var ioinfo = IOInfo {
+//     IOStime: make(map[int64]int64),
+//     IOEtime: make(map[int64]int64),
+// }
+
+var ioinfo IOInfo
+var IOCount = make(map[int64]int64)
 
 func GetState()([]float64) {
-
-    sysInfo := make([]float64,2)
+    sysInfo := make([]float64, 2)
     cpuPer, _ := cpu.Percent(time.Second, false)
     sysInfo[0] = cpuPer[0]
-    memInfo,_ := mem.VirtualMemory()
+    memInfo, _ := mem.VirtualMemory()
     sysInfo[1] = memInfo.UsedPercent
 
     return sysInfo
-
 }
 
+/*IOStart 目前没有实际的操作*/
 func IOStart(ioid int64) error {
-	stime := time.Now().Unix()
-	ioinfo.IOMutex.Lock()
-	if firstStime == 0 {
-		firstStime = stime
-	}
-	
-	iostime := stime - firstStime
-	ioinfo.IOStime[ioid] = iostime
-	ioinfo.IOMutex.Unlock()
-	return nil
+    // stime := time.Now().Unix()
+    // ioinfo.IOMutex.Lock()
+    // ioinfo.IOStime[ioid] = stime
+    // ioinfo.IOMutex.Unlock()
+    return nil
 }
 
+/*IOEnd 统计每一秒的IO个数*/
 func IOEnd(bs int64, ioid int64) error {
-	var i int64
-	etime := time.Now().Unix()
-	ioinfo.IOMutex.Lock()
-	iostate.IOMutex.Lock()
-	if firstEtime == 0 {
-		firstEtime = etime
-	}
-
-	ioetime := etime - firstEtime + 1
-	for id := range ioinfo.IOStime{
-		if ioid == id {
-			if ioetime - ioinfo.IOStime[ioid] > ioWindow {
-				delete(ioinfo.IOStime, ioid)
-				break
-			} 
-			cycles := ioWindow + 1 - ioetime + ioinfo.IOStime[ioid]
-			for i = 0; i < cycles; i++ {
-				iostate.IOPS[ioetime + i] += 1 / float64(ioetime - ioinfo.IOStime[ioid] + i)
-				iostate.MBPS[ioetime + i] += float64(bs) / float64(ioetime - ioinfo.IOStime[ioid] + i)
-			} 
-		}
-	}
-	delete(ioinfo.IOStime, ioid)
-	ioinfo.IOMutex.Unlock()
-	iostate.IOMutex.Unlock()
-	return nil
+    ioinfo.IOMutex.Lock()
+    if ioinfo.IObs == 0 {
+        ioinfo.IObs = bs
+    }
+    etime := time.Now().Unix()
+    // ioinfo.IOEtime[ioid] = etime
+    IOCount[etime] += 1
+    ioinfo.IOMutex.Unlock()
+    return nil
 }
 
+/*获取IOPS*/
 func GetIOps() (float64) {
-	nowtime := time.Now().Unix()
-	gettime := nowtime - firstEtime - 1
-
-	iops, ok:= iostate.IOPS[gettime]
-	if ok {
-		value, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", iops), 64)
-		delete(iostate.IOPS, gettime)
-		return value
-	} else {
-		return 0
-	}
+    var i int64
+    var iops float64
+    nowtime := time.Now().Unix()
+    gettime := nowtime - 1
+    ioinfo.IOMutex.Lock()
+    for i = 0; i < ioWindow; i++ {
+        iops += float64(IOCount[gettime - i])
+    }
+    ioinfo.IOMutex.Unlock()
+    value, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", iops / float64(ioWindow)), 64)
+    return value
 }
 
+/*获取MBPS*/
 func GetMBps() (float64) {
-	nowtime := time.Now().Unix()
-	gettime := nowtime - firstEtime - 1
-
-	mbps, ok:= iostate.MBPS[gettime]
-	if ok {
-		value, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", (mbps / (1024 * 1024))), 64)
-		delete(iostate.MBPS, gettime)
-		return value
-	} else {
-		return 0
-	}
+    var i int64
+    var mbps float64
+    nowtime := time.Now().Unix()
+    gettime := nowtime - 1
+    ioinfo.IOMutex.Lock()
+    for i = 0; i < ioWindow; i++ {
+        mbps += float64(ioinfo.IObs) * float64(IOCount[gettime - i])
+    }
+    delete(IOCount, gettime - ioWindow)
+    ioinfo.IOMutex.Unlock()
+    value, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", mbps / float64(ioWindow * 1024 * 1024)), 64)
+    return value
 }

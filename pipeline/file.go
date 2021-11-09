@@ -1,13 +1,16 @@
 package pipeline
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"go-meter/performinfo"
 	"go-meter/randnum"
+	"io"
 	"log"
 	"os"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -17,7 +20,8 @@ type File struct {
 	masterMask uint64
 }
 
-func NewFile(filePath string, fileSize int, masterMask uint64) *File {
+func NewFileForWrite(filePath string, fileSize int, masterMask uint64) *File {
+	// file, err := os.OpenFile(filePath, os.O_RDWR|syscall.O_NONBLOCK|os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	file, err := os.Create(filePath)
 	if err != nil {
 		log.Fatal(err)
@@ -29,49 +33,31 @@ func NewFile(filePath string, fileSize int, masterMask uint64) *File {
 	}
 }
 
-func MasterMap(blockID, blockSize int) int {
-	blockSize = blockSize / 8
-	masterBlockSize := MasterBlockSize / 8
-	fileOffset := blockID * blockSize
-	masterOffset := fileOffset % masterBlockSize
-	return masterOffset
-}
-
-func (f *File) WriteFile1(master *[]uint64, bs int, fileID uint64) {
-	start := time.Now()
-	rs := randnum.RandomInit(fileID)
-	fileMask := randnum.LCGRandom(rs)
-	blockMask := randnum.LCGRandom(rs)
-	mask := f.masterMask ^ fileMask
-	buffer := make([]byte, bs)
-	tempBuffer := make([]byte, 8)
-
-	for i := 0; i < f.fileSize/bs; i++ {
-		masterOffset := MasterMap(i, bs)
-		for j := 0; j < bs/8; j++ {
-			if masterOffset+j == MasterBlockSize/8 {
-				masterOffset = masterOffset - MasterBlockSize/8
-				blockMask = randnum.LCGRandom(rs)
-			}
-			binary.BigEndian.PutUint64(tempBuffer, (*master)[masterOffset+j]^mask^blockMask)
-			for index, value := range tempBuffer {
-				buffer[j*8+index] = value
-			}
-
-		}
-		f.file.Write(buffer)
-		performinfo.IOEnd(int64(bs))
-	}
-	err := f.file.Close()
+func NewFileForRead(filePath string, fileSize int, masterMask uint64) *File {
+	// f, _ := os.Stat(filePath)
+	// file, err := syscall.Open(filePath, syscall.O_CREAT|syscall.O_RDWR|syscall.O_NONBLOCK, 0644)
+	file, err := os.OpenFile(filePath, os.O_RDWR|syscall.O_NONBLOCK, 0666)
+	// fileSize := int(f.Size())
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("不使用channel:", time.Since(start))
+	return &File{
+		file,
+		fileSize,
+		masterMask,
+	}
+}
+
+func MasterMap(blockID, blockSize int) int {
+	fileOffset := blockID * blockSize
+	masterOffset := fileOffset % MasterBlockSize
+	return masterOffset
 }
 
 func (f *File) WriteFile(master *[]uint64, bs int, fileID uint64) {
-	// start := time.Now()
+	start := time.Now()
 	var buffers [2][]byte
+	nblocks := f.fileSize / bs
 	rs := randnum.RandomInit(fileID)
 	fileMask := randnum.LCGRandom(rs)
 	blockMask := randnum.LCGRandom(rs)
@@ -83,10 +69,10 @@ func (f *File) WriteFile(master *[]uint64, bs int, fileID uint64) {
 	buffers[0] = buffer1
 	buffers[1] = buffer2
 
-	writeCh := make(chan int, 2)
-	writeCh <- 0
-	writeCh <- 1
-	defer close(writeCh)
+	freeCh := make(chan int, 2)
+	freeCh <- 0
+	freeCh <- 1
+	defer close(freeCh)
 
 	readyCh := make(chan int, 2)
 	defer close(readyCh)
@@ -95,32 +81,35 @@ func (f *File) WriteFile(master *[]uint64, bs int, fileID uint64) {
 	wg.Add(2)
 
 	go func() {
-		for i := 0; i < f.fileSize/bs; i++ {
-			myChan := <-writeCh
-			myBuffer := buffers[myChan]
+		for i := 0; i < nblocks; i++ {
+			bufferID := <-freeCh
+			myBuffer := buffers[bufferID]
 			masterOffset := MasterMap(i, bs)
-			for j := 0; j < bs/8; j++ {
-				if masterOffset+j == MasterBlockSize/8 {
-					masterOffset = masterOffset - MasterBlockSize/8
+			for j := 0; j < bs; j += 8 {
+				if masterOffset+j >= MasterBlockSize {
+					masterOffset -= MasterBlockSize
 					blockMask = randnum.LCGRandom(rs)
 				}
-				binary.BigEndian.PutUint64(tempBuffer, (*master)[masterOffset+j]^mask^blockMask)
+				binary.BigEndian.PutUint64(tempBuffer, (*master)[(masterOffset+j)/8]^mask^blockMask)
 				for index, value := range tempBuffer {
-					myBuffer[j*8+index] = value
+					myBuffer[j+index] = value
 				}
 			}
-			readyCh <- myChan
+			readyCh <- bufferID
 		}
 		wg.Done()
 	}()
 
 	go func() {
-		for i := 0; i < f.fileSize/bs; i++ {
-			myChan := <-readyCh
-			myBuffer := buffers[myChan]
+		var ioID int64
+		for i := 0; i < nblocks; i++ {
+			ioID = (int64(fileID)<<60 | int64(i))
+			bufferID := <-readyCh
+			myBuffer := buffers[bufferID]
+			performinfo.IOStart(ioID)
 			f.file.Write(myBuffer)
-			performinfo.IOEnd(int64(bs))
-			writeCh <- myChan
+			performinfo.IOEnd(int64(bs), ioID)
+			freeCh <- bufferID
 		}
 		wg.Done()
 	}()
@@ -129,5 +118,87 @@ func (f *File) WriteFile(master *[]uint64, bs int, fileID uint64) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// fmt.Println("使用channel:", time.Since(start))
+	fmt.Println(time.Since(start))
+}
+
+func (f *File) ReadFile(bs int, fileID uint64) {
+	block := make([]byte, bs)
+	nblocks := f.fileSize / bs
+	for i := 0; i < nblocks; i++ {
+		ioID := int64(fileID) ^ int64(i)
+		performinfo.IOStart(ioID)
+		_, err := f.file.Read(block)
+		performinfo.IOEnd(int64(bs), ioID)
+		if err != nil && err != io.EOF {
+			panic(err)
+		}
+	}
+}
+
+func (f *File) CompareFile(master *[]uint64, bs int, fileID uint64) {
+	var buffers [2][]byte
+	nblocks := f.fileSize / bs
+	rs := randnum.RandomInit(fileID)
+	fileMask := randnum.LCGRandom(rs)
+	blockMask := randnum.LCGRandom(rs)
+	mask := f.masterMask ^ fileMask
+	buffer1 := make([]byte, bs)
+	buffer2 := make([]byte, bs)
+	tempBuffer := make([]byte, 8)
+
+	buffers[0] = buffer1
+	buffers[1] = buffer2
+
+	freeCh := make(chan int, 2)
+	freeCh <- 0
+	freeCh <- 1
+	defer close(freeCh)
+
+	readyCh := make(chan int, 2)
+	defer close(readyCh)
+
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+
+	go func() {
+		for i := 0; i < nblocks; i++ {
+			bufferID := <-freeCh
+			myBuffer := buffers[bufferID]
+			masterOffset := MasterMap(i, bs)
+			for j := 0; j < bs; j += 8 {
+				if masterOffset+j >= MasterBlockSize {
+					masterOffset -= MasterBlockSize
+					blockMask = randnum.LCGRandom(rs)
+				}
+				binary.BigEndian.PutUint64(tempBuffer, (*master)[(masterOffset+j)/8]^mask^blockMask)
+				for index, value := range tempBuffer {
+					myBuffer[j+index] = value
+				}
+			}
+			readyCh <- bufferID
+		}
+		wg.Done()
+	}()
+
+	go func() {
+		block := make([]byte, bs)
+		for i := 0; i < nblocks; i++ {
+			bufferID := <-readyCh
+			myBuffer := buffers[bufferID]
+			_, err := f.file.Read(block)
+			if !bytes.Equal(block, myBuffer) {
+				log.Fatal("Data is inconsistent!!!")
+			}
+			if err != nil && err != io.EOF {
+				panic(err)
+			}
+			freeCh <- bufferID
+		}
+		wg.Done()
+	}()
+	wg.Wait()
+	err := f.file.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
 }

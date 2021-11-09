@@ -36,6 +36,7 @@ func GetState()([]float64) {
     sysInfo[1] = memInfo.UsedPercent
 
     return sysInfo
+
 }
 
 /*IOStart 目前没有实际的操作*/

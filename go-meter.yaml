@@ -1,5 +1,5 @@
-Lineage: [0,20]
-BlockSize: 70M
-TotalSize: 20M
-MasterMask: 70
-FilePath: /kk
+Lineage: [0,4]
+BlockSize: 16K
+TotalSize: 2G
+MasterMask: 12312311
+FilePath: /home/samba/src/go-meter/files/0

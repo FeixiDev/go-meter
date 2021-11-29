@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/robfig/cron"
+	// "github.com/robfig/cron"
 	"github.com/spf13/cobra"
 )
 
@@ -23,18 +23,18 @@ var copyCmd = &cobra.Command{
 		wg := &sync.WaitGroup{}
 		wg.Add(int(number))
 
-		c := cron.New()
-		c.AddFunc("@every 1s", func() {
-			printPerfor()
-		})
-		c.Start()
+		// c := cron.New()
+		// c.AddFunc("@every 1s", func() {
+		// 	printPerfor()
+		// })
+		// c.Start()
 
 		masterBlock := pipeline.MasterBlockInit()
 		for i := InputArgs.Lineage[0]; i <= InputArgs.Lineage[1]; i++ {
 			go WriteFiles(i, masterBlock, wg)
 		}
-
 		wg.Wait()
+
 		fmt.Println("Finish to write files...")
 	},
 }

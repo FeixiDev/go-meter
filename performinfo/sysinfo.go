@@ -8,11 +8,10 @@ import (
 
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/mem"
-
 )
 
 const (
-	ioWindow int64 = 3
+	ioWindow int64 = 1
 )
 
 type IOState struct {

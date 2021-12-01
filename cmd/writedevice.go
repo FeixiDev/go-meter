@@ -5,34 +5,41 @@ import (
 	"go-meter/pipeline"
 	"strconv"
 
+	"github.com/robfig/cron"
 	"github.com/spf13/cobra"
 )
 
-// compareCmd represents the compare command
-var compareCmd = &cobra.Command{
-	Use:   "compare",
-	Short: "compare",
-	Long:  `Compare`,
+var WriteDeviceCmd = &cobra.Command{
+	Use:   "write",
+	Short: "write",
+	Long:  `WriteDevice`,
 	Args:  cobra.NoArgs,
-	// Aliases: []string{"cp"},
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Start to compare files...")
+		fmt.Println("Start to write files...")
 		checkInputArgs()
-		jobNum := InputArgs.JobNum
+
+		c := cron.New()
+		c.AddFunc("@every 1s", func() {
+			printPerfor()
+		})
+		c.Start()
+
 		masterBlock := pipeline.MasterBlockInit()
-		CompareFiles(masterBlock, jobNum)
-		fmt.Println("Finish to compare files...")
+
+		jobNum := InputArgs.JobNum
+		WriteDevice(masterBlock, jobNum)
+
+		fmt.Println("Finish to write files...")
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(compareCmd)
+	rootCmd.AddCommand(WriteDeviceCmd)
 }
 
-func CompareFiles(masterBlock *[]uint64, jobNum uint) {
+func WriteDevice(masterBlock *[]uint64, jobNum uint) {
 	fileSize, _ := strconv.Atoi(InputArgs.TotalSize)
 	blockSize, _ := strconv.Atoi(InputArgs.BlockSize)
-
 	dev := pipeline.NewDevice(InputArgs.DevicePath, fileSize, blockSize, int(jobNum), 0, InputArgs.MasterMask, masterBlock)
-	dev.CompareDevice()
+	dev.WriteDevice()
 }

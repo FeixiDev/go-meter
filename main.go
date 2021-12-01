@@ -8,7 +8,9 @@ go get github.com/robfig/cron/v3
 */
 package main
 
-import "go-meter/cmd"
+import (
+	"go-meter/cmd"
+)
 
 func main() {
 	cmd.Execute()

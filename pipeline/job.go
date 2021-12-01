@@ -1,14 +1,16 @@
 package pipeline
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"go-meter/randnum"
 	"io"
 	"log"
 	"math"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -16,6 +18,64 @@ import (
 // type stop struct {
 // 	error
 // }
+
+type JobRecorder struct {
+	filePath string
+	ch       chan [2]int
+}
+
+func NewJobRecorder(filePath string, cap int) *JobRecorder {
+	// file, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0666)
+	ch := make(chan [2]int, cap)
+	return &JobRecorder{
+		filePath: filePath,
+		ch:       ch,
+	}
+}
+
+func (r *JobRecorder) record() {
+	file, err := os.OpenFile(r.filePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	defer file.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+	cap := cap(r.ch)
+	for i := 0; i < cap; i++ {
+		data, ok := <-r.ch
+		if ok {
+			line := strconv.Itoa(data[0]) + "," + strconv.Itoa(data[1]) + "\n"
+			file.WriteString(line)
+		}
+	}
+	close(r.ch)
+}
+
+func (r *JobRecorder) parse() error {
+	file, err := os.OpenFile(r.filePath, os.O_RDWR, 0666)
+	defer file.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+	buf := bufio.NewReader(file)
+	for {
+		line, err := buf.ReadString('\n')
+		line = strings.Replace(line, "\n", "", -1)
+		strResult := strings.Split(line, ",")
+		if len(strResult) == 2 {
+			start, _ := strconv.Atoi(strResult[0])
+			end, _ := strconv.Atoi(strResult[1])
+			r.ch <- [2]int{start, end}
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+	}
+	close(r.ch)
+	return nil
+}
 
 type Job struct {
 	start       int
@@ -28,8 +88,8 @@ type Job struct {
 	wg          *sync.WaitGroup
 }
 
-func Retry(timeout int, fn func() (int, error)) (int, error) {
-	n, err := fn()
+func Retry(timeout int, fn func() error) error {
+	err := fn()
 	if err != nil {
 		// if s, ok := err.(stop); ok {
 		// 	return s.error
@@ -38,9 +98,9 @@ func Retry(timeout int, fn func() (int, error)) (int, error) {
 			time.Sleep(1 * time.Second)
 			return Retry(timeout, fn)
 		}
-		return n, err
+		return err
 	}
-	return n, nil
+	return nil
 }
 
 func GetRandomStateAndFileMask(index int, seed uint64) (*randnum.RandomState, uint64) {
@@ -72,6 +132,9 @@ func (job *Job) generate(bg *BufferGroup, wg *sync.WaitGroup) {
 	mask := job.masterMask ^ job.fileMask
 	for i := job.start; i < job.end; i++ {
 		buffer := bg.GetFreeBuf()
+		if buffer == nil {
+			break
+		}
 		masterOffset := MasterMap(i, job.bs)
 		for j := 0; j < job.bs; j += 8 {
 			if masterOffset+j >= MasterBlockSize {
@@ -91,30 +154,34 @@ func (job *Job) generate(bg *BufferGroup, wg *sync.WaitGroup) {
 	wg.Done()
 }
 
-func (job *Job) Write(file *os.File, jobWg *sync.WaitGroup) (int, error) {
+func (job *Job) Write(file *os.File, jobWg *sync.WaitGroup, ch chan [2]int) error {
+	var i int
 	bg := NewBufferGroup(job.bs, 2)
-	defer bg.Close()
-
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 
 	go job.generate(bg, &wg)
 
-	for i := job.start; i < job.end; i++ {
+	for i = job.start; i < job.end; i++ {
 		buffer := bg.GetReadyBuf()
 		_, err := file.WriteAt(buffer.value, int64(i*job.bs))
 		if err != nil {
-			fn := func() (int, error) {
+			fn := func() error {
 				_, err := file.WriteAt(buffer.value, int64(i*job.bs))
-				return i, err
+				return err
 			}
-			return Retry(30, fn)
+			err = Retry(30, fn)
+			if err != nil {
+				close(bg.stopCh)
+				break
+			}
 		}
 		buffer.Free()
 	}
+	ch <- [2]int{job.start, i}
 	wg.Wait()
 	jobWg.Done()
-	return job.end, nil
+	return nil
 }
 
 func (job *Job) read(file *os.File) {
@@ -127,15 +194,9 @@ func (job *Job) read(file *os.File) {
 	}
 }
 
-func (job *Job) Copy(file *os.File, jobWg *sync.WaitGroup, ch chan int) {
-	n, _ := job.Write(file, jobWg)
-	ch <- n
-}
-
-func (job *Job) Compare(file *os.File, jobWg *sync.WaitGroup, ch chan int) error {
-	fmt.Println(".")
-	n := <-ch
-	jobNew := NewJob(job.start, n, job.bs, 0, job.masterMask, job.masterBlock)
+func (job *Job) Compare(file *os.File, jobWg *sync.WaitGroup, ch chan [2]int) error {
+	startAndEnd := <-ch
+	jobNew := NewJob(startAndEnd[0], startAndEnd[1], job.bs, 0, job.masterMask, job.masterBlock)
 	block := make([]byte, job.bs)
 	bg := NewBufferGroup(job.bs, 2)
 	defer bg.Close()

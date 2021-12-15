@@ -13,12 +13,6 @@ type Device struct {
 }
 
 func NewDevice(devicePath string, size, bs, jobNum int, fileSeed, masterMask uint64, masterBlock *[]uint64) *Device {
-	// dev, err := os.OpenFile(devicePath, syscall.O_RDWR|syscall.O_NONBLOCK|syscall.O_DIRECT, 0666)
-	// dev, err := os.OpenFile(devicePath, os.O_RDWR|syscall.O_NONBLOCK|syscall.O_DIRECT|os.O_CREATE, 0666)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-
 	blockNum := size / bs
 	amount := blockNum / jobNum
 	remainder := blockNum % jobNum
@@ -41,8 +35,8 @@ func NewDevice(devicePath string, size, bs, jobNum int, fileSeed, masterMask uin
 }
 
 func (d *Device) WriteDevice() {
-	dev, err := os.OpenFile(d.path, syscall.O_RDWR|syscall.O_NONBLOCK|syscall.O_DIRECT, 0666)
-	// dev, err := os.OpenFile(d.path, os.O_RDWR|syscall.O_NONBLOCK|syscall.O_DIRECT|os.O_CREATE|os.O_TRUNC, 0666)
+	// dev, err := os.OpenFile(d.path, syscall.O_RDWR|syscall.O_NONBLOCK|syscall.O_DIRECT, 0666)
+	dev, err := os.OpenFile(d.path, os.O_RDWR|syscall.O_NONBLOCK|syscall.O_DIRECT|os.O_CREATE|os.O_TRUNC, 0666)
 	defer dev.Close()
 	if err != nil {
 		log.Fatal(err)
@@ -51,11 +45,9 @@ func (d *Device) WriteDevice() {
 	wg.Add(len(d.jobList))
 	recorder := NewJobRecorder("record.txt", len(d.jobList))
 	for _, job := range d.jobList {
-		// go job.write(dev.path, &wg)
 		go job.Write(dev, &wg, recorder.ch)
 	}
 	wg.Wait()
-	// 已结束写入，进行部分数据的记录
 	recorder.record()
 }
 

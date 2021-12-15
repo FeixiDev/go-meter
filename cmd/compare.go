@@ -29,10 +29,10 @@ func init() {
 	rootCmd.AddCommand(compareCmd)
 }
 
-func CompareFiles(masterBlock *[]uint64, jobNum uint) {
+func CompareFiles(masterBlock *[]uint64, jobNum int) {
 	fileSize, _ := strconv.Atoi(InputArgs.TotalSize)
 	blockSize, _ := strconv.Atoi(InputArgs.BlockSize)
 
-	dev := pipeline.NewDevice(InputArgs.DevicePath, fileSize, blockSize, int(jobNum), 0, InputArgs.MasterMask, masterBlock)
+	dev := pipeline.NewDevice(InputArgs.DevicePath, fileSize, blockSize, jobNum, 0, InputArgs.MasterMask, masterBlock)
 	dev.CompareDevice()
 }

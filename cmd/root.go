@@ -15,7 +15,7 @@ import (
 
 var InputArgs struct {
 	Lineage    []uint
-	JobNum     uint
+	JobNum     int
 	BlockSize  string
 	TotalSize  string
 	MasterMask uint64
@@ -44,7 +44,7 @@ func init() {
 	cobra.OnInitialize(initConfig)
 
 	rootCmd.PersistentFlags().UintSliceVarP(&InputArgs.Lineage, "lineage", "l", nil, "Start Lineage,End Lineage")
-	rootCmd.PersistentFlags().UintVarP(&InputArgs.JobNum, "job", "j", 16, "Job Num")
+	rootCmd.PersistentFlags().IntVarP(&InputArgs.JobNum, "job", "j", 0, "Job Num")
 	rootCmd.PersistentFlags().StringVarP(&InputArgs.TotalSize, "tsize", "t", "", "Total Size")
 	rootCmd.PersistentFlags().StringVarP(&InputArgs.BlockSize, "bsize", "b", "", "Block Size")
 	rootCmd.PersistentFlags().StringVarP(&InputArgs.FilePath, "path", "p", "", "FilePath")
@@ -143,6 +143,24 @@ func checkInputArgs() {
 	}
 	if InputArgs.Lineage[0] > InputArgs.Lineage[1] {
 		fmt.Println("Start Lineage cannot be greater than End Lineage.")
+		os.Exit(1)
+	}
+}
+
+func checkBlockArgs() {
+	InputArgs.BlockSize = checkSize(InputArgs.BlockSize, "Block")
+	InputArgs.TotalSize = checkSize(InputArgs.TotalSize, "Total File")
+	if InputArgs.JobNum == 0 {
+		fmt.Println("Please input correct number of job (JobNum).")
+		os.Exit(1)
+	}
+}
+
+func checkCompareCondition() {
+	InputArgs.BlockSize = checkSize(InputArgs.BlockSize, "Block")
+	InputArgs.TotalSize = checkSize(InputArgs.TotalSize, "Total File")
+	if InputArgs.JobNum == 0 {
+		fmt.Println("Please input correct number of job (JobNum).")
 		os.Exit(1)
 	}
 }

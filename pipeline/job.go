@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"go-meter/randnum"
 	"io"
 	"log"
@@ -167,6 +168,7 @@ func (job *Job) Write(file *os.File, jobWg *sync.WaitGroup, ch chan [2]int) erro
 		_, err := file.WriteAt(buffer.value, int64(i*job.bs))
 		if err != nil {
 			fn := func() error {
+				fmt.Println("重试")
 				_, err := file.WriteAt(buffer.value, int64(i*job.bs))
 				return err
 			}

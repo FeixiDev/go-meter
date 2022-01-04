@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go-meter/pipeline"
 	"strconv"
+	"sync"
 
 	// "github.com/robfig/cron"
 	"github.com/spf13/cobra"
@@ -24,11 +25,14 @@ var WriteDeviceCmd = &cobra.Command{
 		// })
 		// c.Start()
 
-		masterBlock := pipeline.MasterBlockInit()
-
 		jobNum := InputArgs.JobNum
-		WriteDevice(masterBlock, jobNum)
-
+		deviceMap := InputArgs.DevicePath
+		wg := &sync.WaitGroup{}
+		wg.Add(len(deviceMap))
+		for device, deviceID := range deviceMap {
+			go WriteDevice(device, deviceID, jobNum, wg)
+		}
+		wg.Wait()
 		fmt.Println("Finish to write files...")
 	},
 }
@@ -37,9 +41,10 @@ func init() {
 	rootCmd.AddCommand(WriteDeviceCmd)
 }
 
-func WriteDevice(masterBlock *[]uint64, jobNum int) {
+func WriteDevice(device string, deviceID uint64, jobNum int, wg *sync.WaitGroup) {
 	fileSize, _ := strconv.Atoi(InputArgs.TotalSize)
 	blockSize, _ := strconv.Atoi(InputArgs.BlockSize)
-	dev := pipeline.NewDevice(InputArgs.DevicePath, fileSize, blockSize, jobNum, 0, InputArgs.MasterMask, masterBlock)
+	dev := pipeline.NewDevice(device, deviceID, fileSize, blockSize, jobNum)
 	dev.WriteDevice()
+	wg.Done()
 }

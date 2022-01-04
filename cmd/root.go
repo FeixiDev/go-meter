@@ -20,7 +20,7 @@ var InputArgs struct {
 	TotalSize  string
 	MasterMask uint64
 	FilePath   string
-	DevicePath string
+	DevicePath map[string]uint64
 }
 
 // rootCmd represents the base command when called without any subcommands
@@ -48,7 +48,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&InputArgs.TotalSize, "tsize", "t", "", "Total Size")
 	rootCmd.PersistentFlags().StringVarP(&InputArgs.BlockSize, "bsize", "b", "", "Block Size")
 	rootCmd.PersistentFlags().StringVarP(&InputArgs.FilePath, "path", "p", "", "FilePath")
-	rootCmd.PersistentFlags().StringVarP(&InputArgs.DevicePath, "device", "d", "", "DevicePath")
+	// rootCmd.PersistentFlags().StringSliceVarP(&InputArgs.DevicePath, "device", "d", []string{}, "DevicePath")
 	rootCmd.PersistentFlags().Uint64VarP(&InputArgs.MasterMask, "mask", "m", 0, "Master Mask")
 
 	viper.BindPFlag("TotalSize", rootCmd.PersistentFlags().Lookup("tsize"))
@@ -154,6 +154,12 @@ func checkBlockArgs() {
 		fmt.Println("Please input correct number of job (JobNum).")
 		os.Exit(1)
 	}
+	blockSize, _ := strconv.Atoi(InputArgs.BlockSize)
+	if blockSize%8192 != 0 {
+		fmt.Println("The block size must be an integer multiple of 8K")
+		os.Exit(1)
+	}
+
 }
 
 func checkCompareCondition() {

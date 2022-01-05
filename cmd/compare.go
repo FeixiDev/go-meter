@@ -17,7 +17,7 @@ var compareCmd = &cobra.Command{
 	// Aliases: []string{"cp"},
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("Start to compare files...")
-		checkInputArgs()
+		checkBlockArgs()
 		jobNum := InputArgs.JobNum
 		masterBlock := pipeline.MasterBlockInit()
 		CompareFiles(masterBlock, jobNum)

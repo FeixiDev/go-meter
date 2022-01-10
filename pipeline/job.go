@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -143,9 +142,6 @@ func (job *Job) Write(file *os.File, jobWg *sync.WaitGroup, ch chan [2]int) erro
 	for i = job.start; i < job.end; i++ {
 		buffer := bg.GetReadyBuf()
 		_, err := file.WriteAt(buffer.value, int64(i*job.bs))
-		if i == 100 {
-			err = errors.New("人造")
-		}
 		if err != nil {
 			fn := func() error {
 				fmt.Println("重试")
@@ -153,7 +149,6 @@ func (job *Job) Write(file *os.File, jobWg *sync.WaitGroup, ch chan [2]int) erro
 				return err
 			}
 			err = Retry(30, fn)
-			err = errors.New("人造")
 			if err != nil {
 				close(bg.stopCh)
 				break

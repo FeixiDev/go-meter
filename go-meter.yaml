@@ -1,5 +1,6 @@
-Lineage: [0,4]
-BlockSize: 16K
-TotalSize: 2G
-MasterMask: 12312311
-FilePath: /home/samba/src/go-meter/files/0
+JobNum: 20
+BlockSize: 15K
+TotalSize: 100M
+MasterMask: 12312322
+DevicePath: 
+  /dev/vg0/asd: 1

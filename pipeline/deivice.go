@@ -9,27 +9,29 @@ import (
 
 type Device struct {
 	path    string
+	id      uint64
 	jobList []*Job
 }
 
-func NewDevice(devicePath string, size, bs, jobNum int, fileSeed, masterMask uint64, masterBlock *[]uint64) *Device {
+func NewDevice(devicePath string, deviceID uint64, size, bs, jobNum int) *Device {
 	blockNum := size / bs
 	amount := blockNum / jobNum
 	remainder := blockNum % jobNum
 	jobList := make([]*Job, jobNum)
 
 	for i := 0; i < jobNum; i++ {
-		job := NewJob(i*amount, (i+1)*amount, bs, fileSeed, masterMask, masterBlock)
+		job := NewJob(i*amount, (i+1)*amount, bs, deviceID)
 		jobList[i] = job
 	}
 
 	if remainder != 0 {
-		job := NewJob(jobNum*amount, jobNum*amount+remainder, bs, fileSeed, masterMask, masterBlock)
+		job := NewJob(jobNum*amount, jobNum*amount+remainder, bs, deviceID)
 		jobList = append(jobList, job)
 	}
 
 	return &Device{
 		path:    devicePath,
+		id:      deviceID,
 		jobList: jobList,
 	}
 }

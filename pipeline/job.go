@@ -5,20 +5,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"go-meter/randnum"
 	"io"
 	"log"
-	"math"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
-
-// type stop struct {
-// 	error
-// }
 
 type JobRecorder struct {
 	filePath string
@@ -79,14 +73,12 @@ func (r *JobRecorder) parse() error {
 }
 
 type Job struct {
-	start       int
-	end         int
-	bs          int
-	fileMask    uint64
-	masterMask  uint64
-	rs          *randnum.RandomState
-	masterBlock *[]uint64
-	wg          *sync.WaitGroup
+	start    int
+	end      int
+	bs       int
+	ls       int // logical size 8K
+	deviceID uint64
+	wg       *sync.WaitGroup
 }
 
 func Retry(timeout int, fn func() error) error {
@@ -104,48 +96,32 @@ func Retry(timeout int, fn func() error) error {
 	return nil
 }
 
-func GetRandomStateAndFileMask(index int, seed uint64) (*randnum.RandomState, uint64) {
-	rs := randnum.RandomInit(seed)
-	fileMask := randnum.LCGRandom(rs)
-	for i := 0; i < index; i++ {
-		randnum.LCGRandom(rs)
-	}
-	return rs, fileMask
-}
-
-func NewJob(start, end, bs int, fileSeed, masterMask uint64, masterBlock *[]uint64) *Job {
-	index := int(math.Ceil(float64(start*bs) / float64(MasterBlockSize)))
-	rs, fileMask := GetRandomStateAndFileMask(index, fileSeed)
+func NewJob(start, end, bs int, deviceID uint64) *Job {
 	return &Job{
-		start:       start,
-		end:         end,
-		bs:          bs,
-		fileMask:    fileMask,
-		masterMask:  masterMask,
-		rs:          rs,
-		masterBlock: masterBlock,
+		start:    start,
+		end:      end,
+		bs:       bs,
+		ls:       8 * 1024,
+		deviceID: deviceID,
 	}
 }
 
 func (job *Job) generate(bg *BufferGroup, wg *sync.WaitGroup) {
 	tempBuffer := make([]byte, 8)
-	blockMask := randnum.LCGRandom(job.rs)
-	mask := job.masterMask ^ job.fileMask
+	var blockID uint64
+	var logicalID uint64
+	var blockHeader uint64
 	for i := job.start; i < job.end; i++ {
+		blockID = uint64(i)
+		blockHeader = job.deviceID<<48 + blockID<<32
 		buffer := bg.GetFreeBuf()
 		if buffer == nil {
 			break
 		}
-		masterOffset := MasterMap(i, job.bs)
-		for j := 0; j < job.bs; j += 8 {
-			if masterOffset+j >= MasterBlockSize {
-				masterOffset -= MasterBlockSize
-				blockMask = randnum.LCGRandom(job.rs)
-			}
-			if masterOffset+j == 0 {
-				blockMask = randnum.LCGRandom(job.rs)
-			}
-			binary.BigEndian.PutUint64(tempBuffer, (*job.masterBlock)[(masterOffset+j)/8]^mask^blockMask)
+		for j := 0; j < job.bs; j += job.ls {
+			logicalID = uint64(j)
+			dataHeader := blockHeader + logicalID
+			binary.BigEndian.PutUint64(tempBuffer, dataHeader)
 			for index, value := range tempBuffer {
 				buffer.value[j+index] = value
 			}
@@ -198,7 +174,7 @@ func (job *Job) read(file *os.File) {
 
 func (job *Job) Compare(file *os.File, jobWg *sync.WaitGroup, ch chan [2]int) error {
 	startAndEnd := <-ch
-	jobNew := NewJob(startAndEnd[0], startAndEnd[1], job.bs, 0, job.masterMask, job.masterBlock)
+	jobNew := NewJob(startAndEnd[0], startAndEnd[1], job.bs, job.deviceID)
 	block := make([]byte, job.bs)
 	bg := NewBufferGroup(job.bs, 2)
 	defer bg.Close()

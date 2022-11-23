@@ -1,0 +1,6 @@
+JobNum: 20
+BlockSize: 15K
+TotalSize: 100M
+MasterMask: 12312322
+DevicePath: 
+  /dev/vg0/asd: 1
